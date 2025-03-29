@@ -1,0 +1,13 @@
+{
+    "activation_key": "h",
+    "circles_meters": [
+        3.0,
+        5.0,
+        10.0
+    ],
+    "altitude_range": 20,
+    "alignment_tolerance": {
+        "horizontal_m": 3.0,
+        "vertical_ft": 3.0
+    }
+}

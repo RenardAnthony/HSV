@@ -5,8 +5,9 @@ import tkinter as tk
 import math
 import json
 import os
-from tkinter import simpledialog, messagebox
-
+from tkinter import messagebox
+from PIL import Image, ImageTk, ImageDraw
+import keyboard
 
 # === COULEURS PERSONNALISABLES ===
 COLORS = {
@@ -18,11 +19,10 @@ COLORS = {
     "label_text": "#555",
     "horizontal_point": "red",
     "altitude_point": "red",
-    "altitude_marker": "blue",
     "aligned": "green",
+    "grid": "#ddd",
+    "altitude_threshold": "#888"
 }
-
-
 
 # === CONFIGURATION ===
 DEFAULT_SETTINGS = {
@@ -37,301 +37,262 @@ DEFAULT_SETTINGS = {
 
 SETTINGS_FILE = "settings.json"
 
+activation_key = "f"
+circles_meters = []
+altitude_range = 40
+tolerance_horizontal = 1.0
+tolerance_vertical = 1.0
+reference_data = {"lat": None, "lon": None, "alt": None, "hdg": 0.0, "active": False}
 
-def ouvrir_parametres():
-    top = tk.Toplevel(root)
-    top.title("Paramètres HSV")
-    top.geometry("300x300")
-
-    tk.Label(top, text="Touche activation HSV").pack()
-    entry_key = tk.Entry(top)
-    entry_key.insert(0, activation_key)
-    entry_key.pack()
-
-    tk.Label(top, text="Cercles (en mètres, séparés par des virgules)").pack()
-    entry_circles = tk.Entry(top)
-    entry_circles.insert(0, ", ".join(map(str, circles_meters)))
-    entry_circles.pack()
-
-    tk.Label(top, text="Échelle altitude (±x ft)").pack()
-    entry_alt = tk.Entry(top)
-    entry_alt.insert(0, str(altitude_range))
-    entry_alt.pack()
-
-    tk.Label(top, text="Tolérance position (m)").pack()
-    entry_tol_pos = tk.Entry(top)
-    entry_tol_pos.insert(0, str(tolerance_horizontal))
-    entry_tol_pos.pack()
-
-    tk.Label(top, text="Tolérance altitude (ft)").pack()
-    entry_tol_alt = tk.Entry(top)
-    entry_tol_alt.insert(0, str(tolerance_vertical))
-    entry_tol_alt.pack()
-
-    def sauvegarder():
-        try:
-            new_key = entry_key.get().strip().lower()
-            new_circles = list(map(float, entry_circles.get().split(",")))
-            new_alt_range = int(entry_alt.get())
-            new_tol_pos = float(entry_tol_pos.get())
-            new_tol_alt = float(entry_tol_alt.get())
-
-            new_settings = {
-                "activation_key": new_key,
-                "circles_meters": new_circles,
-                "altitude_range": new_alt_range,
-                "alignment_tolerance": {
-                    "horizontal_m": new_tol_pos,
-                    "vertical_ft": new_tol_alt
-                }
-            }
-
-            with open(SETTINGS_FILE, "w") as f:
-                json.dump(new_settings, f, indent=4)
-
-            messagebox.showinfo("Succès", "Paramètres sauvegardés ! Redémarrage des variables.")
-
-            # Recharger les valeurs globales
-            global activation_key, circles_meters, altitude_range, tolerance_horizontal, tolerance_vertical
-            activation_key = new_key
-            circles_meters = new_circles
-            altitude_range = new_alt_range
-            tolerance_horizontal = new_tol_pos
-            tolerance_vertical = new_tol_alt
-
-            top.destroy()
-
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Erreur lors de la sauvegarde : {e}")
-
-    tk.Button(top, text="Sauvegarder", command=sauvegarder).pack(pady=10)
-
-
-# Crée ou charge le fichier settings.json
-if not os.path.exists(SETTINGS_FILE):
-    with open(SETTINGS_FILE, "w") as f:
-        json.dump(DEFAULT_SETTINGS, f, indent=4)
-        print("✅ Fichier settings.json créé avec les valeurs par défaut.")
-
-with open(SETTINGS_FILE, "r") as f:
-    SETTINGS = json.load(f)
-
-# === Variables issues du fichier ===
-activation_key = SETTINGS.get("activation_key", "f").lower()
-circles_meters = SETTINGS.get("circles_meters", [2, 5, 10])
-altitude_range = SETTINGS.get("altitude_range", 40)
-tolerance_horizontal = SETTINGS["alignment_tolerance"]["horizontal_m"]
-tolerance_vertical = SETTINGS["alignment_tolerance"]["vertical_ft"]
-
-
-# Connexion à MSFS
 sm = SimConnect()
 aq = AircraftRequests(sm, _time=200)
 
-reference_data = {
-    "lat": None,
-    "lon": None,
-    "alt": None,
-    "active": False
-}
-
-# Fenêtre principale
 root = tk.Tk()
 root.title("HSV - Helicopter Stabilisation Visualisator")
 root.geometry("500x420")
 root.resizable(False, False)
-
-canvas = tk.Canvas(root, width=500, height=400, bg="#f4f4f4")
+canvas = tk.Canvas(root, width=500, height=400, bg=COLORS["bg"])
 canvas.pack()
-drawn_graduations = []
-drawn_labels = []
 
-def draw_reference_elements():
-    # Supprimer anciens éléments
-    for el in drawn_graduations + drawn_labels:
-        canvas.delete(el)
-    drawn_graduations.clear()
-    drawn_labels.clear()
-
-    # Cercles
-    for m in circles_meters:
-        scale = m / max(circles_meters)
-        circle = canvas.create_oval(
-            circle_center[0] - circle_radius * scale,
-            circle_center[1] - circle_radius * scale,
-            circle_center[0] + circle_radius * scale,
-            circle_center[1] + circle_radius * scale,
-            outline="#bbb", dash=(2, 2)
-        )
-        label = canvas.create_text(circle_center[0] + circle_radius * scale + 10, circle_center[1],
-                                   text=f"{m}m", font=("Arial", 8), fill="#555")
-        drawn_graduations.append(circle)
-        drawn_labels.append(label)
-
-    # Altitude graduations
-    graduation_step = altitude_range // 2
-    for i in range(-2, 3):
-        val = i * graduation_step
-        y = (bar_top + bar_bottom) / 2 - (val / altitude_range) * 100
-        line = canvas.create_line(bar_x - 10, y, bar_x + 10, y, fill="#666")
-        text = canvas.create_text(bar_x + 25, y, text=f"{val:+} ft", font=("Arial", 9))
-        drawn_graduations.append(line)
-        drawn_labels.append(text)
-
-
-# Coordonnées UI
 circle_center = (150, 200)
 circle_radius = 100
 bar_top = 100
 bar_bottom = 300
 bar_x = 400
 
-# Cercle
-canvas.create_oval(
-    circle_center[0] - circle_radius,
-    circle_center[1] - circle_radius,
-    circle_center[0] + circle_radius,
-    circle_center[1] + circle_radius,
-    outline="black", width=2
-)
+rosace = Image.new("RGBA", (200, 200), (255, 255, 255, 0))
+draw = ImageDraw.Draw(rosace)
+draw.ellipse((0, 0, 200, 200), outline=COLORS["circle_line"])
+draw.line((100, 0, 100, 200), fill=COLORS["circle_line"])
+draw.line((0, 100, 200, 100), fill=COLORS["circle_line"])
+draw.text((95, 5), "N", fill=COLORS["label_text"])
+rosace_img = ImageTk.PhotoImage(rosace)
+rosace_id = canvas.create_image(circle_center[0], circle_center[1], image=rosace_img)
 
-# Repères dans le cercle
-canvas.create_line(circle_center[0] - circle_radius, circle_center[1], circle_center[0] + circle_radius, circle_center[1], fill="#aaa", dash=(4, 2))
-canvas.create_line(circle_center[0], circle_center[1] - circle_radius, circle_center[0], circle_center[1] + circle_radius, fill="#aaa", dash=(4, 2))
-canvas.create_line(circle_center[0] - circle_radius * 0.7, circle_center[1] - circle_radius * 0.7, circle_center[0] + circle_radius * 0.7, circle_center[1] + circle_radius * 0.7, fill="#ccc", dash=(3, 2))
-canvas.create_line(circle_center[0] - circle_radius * 0.7, circle_center[1] + circle_radius * 0.7, circle_center[0] + circle_radius * 0.7, circle_center[1] - circle_radius * 0.7, fill="#ccc", dash=(3, 2))
+helico_raw = Image.open("assets/helico.png").resize((30, 30))
+helico_img = ImageTk.PhotoImage(helico_raw)
+helico_img_id = canvas.create_image(circle_center[0], circle_center[1], image=helico_img)
 
-# Barre verticale
-canvas.create_line(bar_x, bar_top, bar_x, bar_bottom, fill="black", width=3)
+horiz_point = canvas.create_oval(0, 0, 0, 0, fill=COLORS["horizontal_point"])
+alt_point = canvas.create_oval(0, 0, 0, 0, fill=COLORS["altitude_point"])
 
-# Cercles de repères (2m, 5m, 10m)
+# Lignes de seuil de tolérance altitude
+alt_thresh_upper = canvas.create_line(bar_x - 10, 0, bar_x + 10, 0, fill=COLORS["altitude_threshold"], dash=(2, 2))
+alt_thresh_lower = canvas.create_line(bar_x - 10, 0, bar_x + 10, 0, fill=COLORS["altitude_threshold"], dash=(2, 2))
 
-
-# Points visuels
-horiz_point = canvas.create_oval(0, 0, 0, 0, fill="red")
-alt_point = canvas.create_oval(0, 0, 0, 0, fill="red")
-alt_ref_marker = canvas.create_oval(bar_x - 6, 195 - 6, bar_x + 6, 195 + 6, fill="blue")
-
-# Lissage positions
 last_x, last_y = circle_center
 last_alt_y = (bar_top + bar_bottom) / 2
 
+drawn_graduations = []
+drawn_labels = []
 
-# Activer le HSV (référence)
-def activer_hsv():
-    try:
-        lat = aq.get("PLANE_LATITUDE")
-        lon = aq.get("PLANE_LONGITUDE")
-        alt = aq.get("PLANE_ALTITUDE")
+def global_hotkey_listener():
+    while True:
+        try:
+            if keyboard.is_pressed(activation_key):
+                activer_hsv()
+                time.sleep(0.5)  # anti-spam
+        except:
+            pass
+        time.sleep(0.05)
+threading.Thread(target=global_hotkey_listener, daemon=True).start()
 
-        if None in (lat, lon, alt):
-            print("Impossible d'activer HSV : données manquantes.")
-            return
-
-        reference_data["lat"] = lat
-        reference_data["lon"] = lon
-        reference_data["alt"] = alt
-        reference_data["active"] = True
-
-        print("HSV activé par touche ou bouton.")
-        print(f"→ Lat: {lat:.6f}")
-        print(f"→ Lon: {lon:.6f}")
-        print(f"→ Alt: {alt:.2f} ft")
-
-    except Exception as e:
-        print("Erreur lors de l’activation HSV :", e)
-
-# Lier touche F
-def on_key(event):
-    if event.keysym.lower() == activation_key:
-        activer_hsv()
-root.bind("<Key>", on_key)
-
-# Bouton au cas où
-btn = tk.Button(root, text="Activer HSV (F)", command=activer_hsv)
-btn.place(x=180, y=370)
-btn_settings = tk.Button(root, text="⚙️ Paramètres", command=ouvrir_parametres)
-btn_settings.place(x=300, y=370)
-
-draw_reference_elements()
-# Calcul distance entre deux GPS points
 def latlon_to_meters(lat1, lon1, lat2, lon2):
     R = 6371000
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-    return R * c
+    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+
+def bearing_to(lat1, lon1, lat2, lon2):
+    dlon = math.radians(lon2 - lon1)
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+    y = math.sin(dlon) * math.cos(lat2)
+    x = math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon)
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
 
 def update_data():
-    global last_x, last_y, last_alt_y
-
-    error_count = 0
-    max_errors = 3
-
+    global last_x, last_y, last_alt_y, rosace_img
     while True:
         try:
             lat = aq.get("PLANE_LATITUDE")
             lon = aq.get("PLANE_LONGITUDE")
             alt = aq.get("PLANE_ALTITUDE")
+            hdg_raw = aq.get("PLANE_HEADING_DEGREES_TRUE")
 
-            if None in (lat, lon, alt):
-                raise ValueError("Données SimConnect invalides (None)")
-
-            error_count = 0
-
-            print(f"Lat: {lat:.6f} | Lon: {lon:.6f} | Alt: {alt:.2f}")
+            try:
+                hdg = float(str(hdg_raw).replace(",", "."))
+                if 0.0 <= hdg <= 6.3:
+                    hdg = math.degrees(hdg)
+                hdg = hdg % 360
+            except:
+                hdg = 0.0
+                print(f"[ERREUR] Heading invalide : {repr(hdg_raw)}")
 
             if reference_data["active"]:
-                dx = latlon_to_meters(reference_data["lat"], reference_data["lon"], lat, reference_data["lon"])
-                dy = latlon_to_meters(reference_data["lat"], reference_data["lon"], reference_data["lat"], lon)
+                bearing = bearing_to(lat, lon, reference_data["lat"], reference_data["lon"])
+                rel_angle = (bearing - hdg + 360) % 360
 
-                dx *= -1 if lat < reference_data["lat"] else 1
-                dy *= -1 if lon < reference_data["lon"] else 1
+                distance = latlon_to_meters(lat, lon, reference_data["lat"], reference_data["lon"])
+                max_d = max(circles_meters)
+                d_norm = min(1, distance / max_d)
 
-                scale = max(circles_meters)  # s’adapte automatiquement à la portée max
-                x = max(-1, min(1, dx / scale))
-                y = max(-1, min(1, dy / scale))
+                angle_rad = math.radians(rel_angle)
+                x_rot = math.sin(angle_rad) * d_norm
+                y_rot = math.cos(angle_rad) * d_norm
 
-                if abs(dx) > scale or abs(dy) > scale:
-                    print("⚠️ Dérive > 10m (hors zone)")
-
-                target_x = circle_center[0] + x * circle_radius
-                target_y = circle_center[1] + y * circle_radius
-
+                target_x = circle_center[0] + x_rot * circle_radius
+                target_y = circle_center[1] - y_rot * circle_radius
                 last_x += (target_x - last_x) * 0.2
                 last_y += (target_y - last_y) * 0.2
 
-                canvas.coords(
-                    horiz_point,
-                    last_x - 5, last_y - 5,
-                    last_x + 5, last_y + 5
-                )
+                aligned_pos = distance < tolerance_horizontal
+                canvas.coords(horiz_point, last_x - 5, last_y - 5, last_x + 5, last_y + 5)
+                canvas.itemconfig(horiz_point, fill=COLORS["aligned"] if aligned_pos else COLORS["horizontal_point"])
 
-                # Altitude
+                rosace_rot = rosace.rotate(hdg, resample=Image.BICUBIC)
+                rosace_img = ImageTk.PhotoImage(rosace_rot)
+                canvas.itemconfig(rosace_id, image=rosace_img)
+                canvas.image = rosace_img
+
+                canvas.itemconfig(helico_img_id, image=helico_img)
+                canvas.image2 = helico_img
+
                 alt_diff = alt - reference_data["alt"]
-                scale_alt = 65
-                offset = max(-1, min(1, alt_diff / scale_alt))
+                offset = max(-1, min(1, alt_diff / altitude_range))
                 bar_center = (bar_top + bar_bottom) / 2
                 target_alt_y = bar_center - offset * 100
-
                 last_alt_y += (target_alt_y - last_alt_y) * 0.2
 
-                canvas.coords(
-                    alt_point,
-                    bar_x - 4, last_alt_y - 4,
-                    bar_x + 4, last_alt_y + 4
-                )
+                aligned_alt = abs(alt_diff) < tolerance_vertical
+                canvas.coords(alt_point, bar_x - 4, last_alt_y - 4, bar_x + 4, last_alt_y + 4)
+                canvas.itemconfig(alt_point, fill=COLORS["aligned"] if aligned_alt else COLORS["altitude_point"])
+
+                # Affichage des lignes de seuil
+                offset_thresh = (tolerance_vertical / altitude_range) * 100
+                canvas.coords(alt_thresh_upper, bar_x - 10, bar_center - offset_thresh, bar_x + 10, bar_center - offset_thresh)
+                canvas.coords(alt_thresh_lower, bar_x - 10, bar_center + offset_thresh, bar_x + 10, bar_center + offset_thresh)
 
         except Exception as e:
-            error_count += 1
-            print(f"Erreur ({error_count}/{max_errors}) : {e}")
-            if error_count >= max_errors:
-                print("Trop d’erreurs consécutives, arrêt du script.")
-                break
-
+            print("Erreur update:", e)
         time.sleep(0.05)
 
-thread = threading.Thread(target=update_data, daemon=True)
-thread.start()
+def activer_hsv():
+    try:
+        lat = aq.get("PLANE_LATITUDE")
+        lon = aq.get("PLANE_LONGITUDE")
+        alt = aq.get("PLANE_ALTITUDE")
+        hdg = aq.get("PLANE_HEADING_DEGREES_TRUE")
+
+        try:
+            hdg = float(str(hdg).replace(",", "."))
+            if 0.0 <= hdg <= 6.3:
+                hdg = math.degrees(hdg)
+            hdg = hdg % 360
+        except:
+            hdg = 0.0
+
+        if None in (lat, lon, alt):
+            return
+        reference_data.update({"lat": lat, "lon": lon, "alt": alt, "hdg": hdg, "active": True})
+    except Exception as e:
+        print("Erreur HSV:", e)
+
+def on_key(event):
+    if event.keysym.lower() == activation_key:
+        activer_hsv()
+
+def draw_reference_elements():
+    for el in drawn_graduations + drawn_labels:
+        canvas.delete(el)
+    drawn_graduations.clear()
+    drawn_labels.clear()
+
+    max_m = max(circles_meters)
+    for i in range(-2, 3):
+        offset = i * (circle_radius / 2)
+        drawn_graduations.append(canvas.create_line(circle_center[0] + offset, circle_center[1] - circle_radius,
+                                                     circle_center[0] + offset, circle_center[1] + circle_radius, fill=COLORS["grid"]))
+        drawn_graduations.append(canvas.create_line(circle_center[0] - circle_radius, circle_center[1] + offset,
+                                                     circle_center[0] + circle_radius, circle_center[1] + offset, fill=COLORS["grid"]))
+
+    for m in circles_meters:
+        scale = m / max_m
+        drawn_graduations.append(canvas.create_oval(
+            circle_center[0] - circle_radius * scale,
+            circle_center[1] - circle_radius * scale,
+            circle_center[0] + circle_radius * scale,
+            circle_center[1] + circle_radius * scale,
+            outline=COLORS["circle_line"], dash=(2, 2)))
+        drawn_labels.append(canvas.create_text(circle_center[0] + circle_radius * scale + 10, circle_center[1],
+                                               text=f"{m}m", font=("Arial", 8), fill=COLORS["label_text"]))
+
+    for i in range(-2, 3):
+        val = i * (altitude_range // 2)
+        y = (bar_top + bar_bottom) / 2 - (val / altitude_range) * 100
+        drawn_graduations.append(canvas.create_line(bar_x - 10, y, bar_x + 10, y, fill=COLORS["graduation"]))
+        drawn_labels.append(canvas.create_text(bar_x + 25, y, text=f"{val:+} ft", font=("Arial", 9)))
+
+def ouvrir_parametres():
+    top = tk.Toplevel(root)
+    top.title("Paramètres HSV")
+    top.geometry("300x300")
+
+    entries = {}
+    labels = [
+        ("Touche activation HSV", activation_key, "activation_key"),
+        ("Cercles (en mètres, séparés par des virgules)", ", ".join(map(str, circles_meters)), "circles"),
+        ("Échelle altitude (±x ft)", str(altitude_range), "alt_range"),
+        ("Tolérance position (m)", str(tolerance_horizontal), "tol_pos"),
+        ("Tolérance altitude (ft)", str(tolerance_vertical), "tol_alt")
+    ]
+
+    for label_text, default, key in labels:
+        tk.Label(top, text=label_text).pack()
+        entry = tk.Entry(top)
+        entry.insert(0, default)
+        entry.pack()
+        entries[key] = entry
+
+    def sauvegarder():
+        try:
+            new_settings = {
+                "activation_key": entries["activation_key"].get().strip().lower(),
+                "circles_meters": list(map(float, entries["circles"].get().split(","))),
+                "altitude_range": int(entries["alt_range"].get()),
+                "alignment_tolerance": {
+                    "horizontal_m": float(entries["tol_pos"].get()),
+                    "vertical_ft": float(entries["tol_alt"].get())
+                }
+            }
+            with open(SETTINGS_FILE, "w") as f:
+                json.dump(new_settings, f, indent=4)
+            messagebox.showinfo("Succès", "Paramètres sauvegardés.")
+            load_settings()
+            top.destroy()
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Erreur : {e}")
+
+    tk.Button(top, text="Sauvegarder", command=sauvegarder).pack(pady=10)
+
+def load_settings():
+    global activation_key, circles_meters, altitude_range, tolerance_horizontal, tolerance_vertical
+    if not os.path.exists(SETTINGS_FILE):
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(DEFAULT_SETTINGS, f, indent=4)
+    with open(SETTINGS_FILE, "r") as f:
+        s = json.load(f)
+    activation_key = s.get("activation_key", "f")
+    circles_meters = s.get("circles_meters", [2, 5, 10])
+    altitude_range = s.get("altitude_range", 40)
+    tolerance_horizontal = s["alignment_tolerance"]["horizontal_m"]
+    tolerance_vertical = s["alignment_tolerance"]["vertical_ft"]
+    draw_reference_elements()
+
+load_settings()
+root.bind("<Key>", on_key)
+tk.Button(root, text="Activer HSV (F)", command=activer_hsv).place(x=180, y=370)
+tk.Button(root, text="⚙️ Paramètres", command=ouvrir_parametres).place(x=300, y=370)
+threading.Thread(target=update_data, daemon=True).start()
 root.mainloop()
