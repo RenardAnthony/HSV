@@ -7,6 +7,7 @@ import json
 import os
 from tkinter import simpledialog, messagebox
 from PIL import Image, ImageTk, ImageDraw
+import keyboard
 
 # === COULEURS PERSONNALISABLES ===
 COLORS = {
@@ -81,6 +82,17 @@ last_alt_y = (bar_top + bar_bottom) / 2
 
 drawn_graduations = []
 drawn_labels = []
+
+def global_hotkey_listener():
+    while True:
+        try:
+            if keyboard.is_pressed(activation_key):
+                activer_hsv()
+                time.sleep(0.5)  # anti-spam
+        except:
+            pass
+        time.sleep(0.05)
+threading.Thread(target=global_hotkey_listener, daemon=True).start()
 
 def latlon_to_meters(lat1, lon1, lat2, lon2):
     R = 6371000
