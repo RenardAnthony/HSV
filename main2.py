@@ -19,9 +19,9 @@ COLORS = {
     "label_text": "#555",
     "horizontal_point": "red",
     "altitude_point": "red",
-    "altitude_marker": "blue",
     "aligned": "green",
-    "grid": "#ddd"
+    "grid": "#ddd",
+    "altitude_threshold": "#888"
 }
 
 # === CONFIGURATION ===
@@ -75,7 +75,10 @@ helico_img_id = canvas.create_image(circle_center[0], circle_center[1], image=he
 
 horiz_point = canvas.create_oval(0, 0, 0, 0, fill=COLORS["horizontal_point"])
 alt_point = canvas.create_oval(0, 0, 0, 0, fill=COLORS["altitude_point"])
-alt_ref_marker = canvas.create_oval(bar_x - 6, 195 - 6, bar_x + 6, 195 + 6, fill=COLORS["altitude_marker"])
+
+# Lignes de seuil de tolérance altitude
+alt_thresh_upper = canvas.create_line(bar_x - 10, 0, bar_x + 10, 0, fill=COLORS["altitude_threshold"], dash=(2, 2))
+alt_thresh_lower = canvas.create_line(bar_x - 10, 0, bar_x + 10, 0, fill=COLORS["altitude_threshold"], dash=(2, 2))
 
 last_x, last_y = circle_center
 last_alt_y = (bar_top + bar_bottom) / 2
@@ -127,8 +130,6 @@ def update_data():
                 hdg = 0.0
                 print(f"[ERREUR] Heading invalide : {repr(hdg_raw)}")
 
-            print(f"[DEBUG] Heading (corrigé) : {hdg:.2f}°")
-
             if reference_data["active"]:
                 bearing = bearing_to(lat, lon, reference_data["lat"], reference_data["lon"])
                 rel_angle = (bearing - hdg + 360) % 360
@@ -167,6 +168,12 @@ def update_data():
                 aligned_alt = abs(alt_diff) < tolerance_vertical
                 canvas.coords(alt_point, bar_x - 4, last_alt_y - 4, bar_x + 4, last_alt_y + 4)
                 canvas.itemconfig(alt_point, fill=COLORS["aligned"] if aligned_alt else COLORS["altitude_point"])
+
+                # Affichage des lignes de seuil
+                offset_thresh = (tolerance_vertical / altitude_range) * 100
+                canvas.coords(alt_thresh_upper, bar_x - 10, bar_center - offset_thresh, bar_x + 10, bar_center - offset_thresh)
+                canvas.coords(alt_thresh_lower, bar_x - 10, bar_center + offset_thresh, bar_x + 10, bar_center + offset_thresh)
+
         except Exception as e:
             print("Erreur update:", e)
         time.sleep(0.05)
@@ -189,7 +196,6 @@ def activer_hsv():
         if None in (lat, lon, alt):
             return
         reference_data.update({"lat": lat, "lon": lon, "alt": alt, "hdg": hdg, "active": True})
-        print(f"[ACTIVATION] Référence initiale à {lat:.6f}, {lon:.6f}, {alt:.2f} ft, heading {hdg:.2f}°")
     except Exception as e:
         print("Erreur HSV:", e)
 
