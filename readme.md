@@ -3,6 +3,7 @@
 
 **HSV** est un outil visuel en temps réel conçu pour **Microsoft Flight Simulator 2024** (ou tout simulateur compatible SimConnect), permettant d’aider le pilote d’un hélicoptère à maintenir une position stable au-dessus d’un point précis.
 
+[![Watch the video](https://img.youtube.com/vi/pVqCAiAB_d0/maxresdefault.jpg)](https://youtu.be/pVqCAiAB_d0)
 ---
 
 ## 📦 Version exécutable (`.exe`)
